@@ -3,7 +3,7 @@ set -x
 
 # set path
 export CHATLEARN=$(pwd)
-export model_path="${CHATLEARN}/Qwen2.5-7B-Instruct"
+export model_path="/mnt/workspace/chatlearn-exp/hub/hf/Qwen2.5-7B-Instruct"
 export exp_name=qwen2.5-grpo
 export output_dir=${CHATLEARN}/output/${exp_name}
 export train_data_path=${CHATLEARN}/dataset/MATH-lighteval/train.json
@@ -34,7 +34,7 @@ export sp_size=1
 export VLLM_USE_RAY_SPMD_WORKER=1
 export VLLM_USE_RAY_COMPILED_DAG=1
 
-export tensor_model_parallel_size=2
+export tensor_model_parallel_size=4
 export policy_temperature=1.0
 export policy_top_p=1.0
 export policy_top_k=-1
@@ -52,7 +52,7 @@ export vllm_generation_batch_size=128
 export train_micro_batch_size=16
 export gpu_memory_utilization=0.85
 
-export enable_eval_before_training=True
+export enable_eval_before_training=False
 export num_episode=20
 export eval_episode_interval=5
 export save_episode_interval=20

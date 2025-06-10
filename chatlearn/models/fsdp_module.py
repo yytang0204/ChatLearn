@@ -71,6 +71,8 @@ class FSDPModule(TorchModule):
         self.sp_size = self.module_args.sp_size
         self.device_mesh = None
         self.sp_device_mesh = None
+        self.packing = True
+        self.max_token_in_seq = 16000
 
     def get_visible_gpus(self):
         """

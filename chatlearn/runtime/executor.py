@@ -350,6 +350,7 @@ class Executor:
                                                        is_eval, to_onload, to_offload, micro_batch_index)
 
         num_dp_rank = len(replica.dp_rank_to_actors)
+        print(f"debugyy num_dp_rank: {num_dp_rank}, output size: {len(output)}")
         if model.module_args.zero_size == 1:
             # If (tp > 1 or pp > 1) and ep = 1 for current model, its `output` will be a list whose
             #   length is the number of Actors. In this case, all members in the list

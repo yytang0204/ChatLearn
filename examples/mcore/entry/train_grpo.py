@@ -17,6 +17,7 @@ import json
 import torch
 from typing import List
 from collections import defaultdict
+import dataclasses
 
 import chatlearn
 from chatlearn import Evaluator
@@ -118,6 +119,19 @@ class GRPOEngine(Engine):
 if __name__ == "__main__":
     chatlearn.init()
     args = chatlearn.get_args()
+    # import json
+    # from dataclasses import dataclass, asdict, is_dataclass
+    # from typing import Any
+    # def custom_json_serializer(obj: Any) -> Any:
+    #     """Custom JSON serializer function for dataclass objects."""
+    #     if is_dataclass(obj):
+    #         # Convert dataclass to dictionary
+    #         return asdict(obj)
+    #     raise TypeError(f"Type {type(obj)} not serializable")
+
+    # with open('args.json', 'w') as f:
+    #     json.dump(args.__dict__, f, default=custom_json_serializer, ensure_ascii=False, indent=4)
+    # exit()
     policy_trainer = PolicyTrainer("policy_trainer")
     ref_policy = PolicyTrainer("ref_policy")
     policy = VLLMPolicyInference("policy")

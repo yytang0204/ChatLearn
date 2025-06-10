@@ -21,12 +21,12 @@ export CUSTOM_PORTS=$ports
 export num_device=$(($WORLD_SIZE * 8))
 
 # data
-export train_data_path="/mnt/data/datasets/MATH-lighteval/train.json"
-export eval_data_path="/mnt/data/datasets/MATH-lighteval/test.json"
+export train_data_path="/mnt/workspace/chatlearn-exp/test/fsdp_chatlearn/charlearn_open/ChatLearn/dataset/MATH-lighteval/train.json"
+export eval_data_path="/mnt/workspace/chatlearn-exp/test/fsdp_chatlearn/charlearn_open/ChatLearn/dataset/MATH-lighteval/test.json"
 export patch_tokenizer_type=Qwen2Tokenizer
 export extra_vocab_size=421
-export tokenizer_path="/mnt/data/qwen-ckpts/Qwen2.5-7B-Instruct"
-export load="/mnt/data/qwen-ckpts/Qwen2.5-7B-Instruct-hf-to-mcore-tp4-pp2"
+export tokenizer_path="/mnt/workspace/chatlearn-exp/hub/hf/Qwen2.5-7B-Instruct"
+export load="/mnt/workspace/chatlearn-exp/test/fsdp_chatlearn/charlearn_open/Qwen2.5-7B-Instruct-hf-to-mcore-tp4-pp1/"
 
 # model
 export max_position_embedding=131072
@@ -36,7 +36,7 @@ export policy_num_attention_heads=28
 export policy_num_query_groups=4
 export policy_ffn_hidden_size=18944
 export tensor_model_parallel_size=4 
-export pipeline_model_parallel_size=2 
+export pipeline_model_parallel_size=1
 
 # training
 export final_clip_ratio=3

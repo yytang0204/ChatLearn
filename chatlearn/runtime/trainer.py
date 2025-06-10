@@ -87,12 +87,12 @@ class Trainer(Executor):
             f"Unsupported training shuffle mode {self.args.training_shuffle_mode}, only {list(TrainingShffuleMode)} allowed."
         logger.info(f"Set training shuffle mode {self.args.training_shuffle_mode}.")
         for epoch in range(self.args.num_training_epoch):
-            if epoch > 0:
-                if self.args.training_shuffle_mode == TrainingShffuleMode.BATCH:
-                    ret = self._data_loader.shuffle.remote(self.args.train_micro_batch_size)
-                elif self.args.training_shuffle_mode == TrainingShffuleMode.SAMPLE:
-                    ret = self._data_loader.shuffle.remote()
-                future.wait(ret)
+            # if epoch > 0:
+            #     if self.args.training_shuffle_mode == TrainingShffuleMode.BATCH:
+            #         ret = self._data_loader.shuffle.remote(self.args.train_micro_batch_size)
+            #     elif self.args.training_shuffle_mode == TrainingShffuleMode.SAMPLE:
+            #         ret = self._data_loader.shuffle.remote()
+            #     future.wait(ret)
             data_queues, out_queue = self.setup_queues()
             for mb in range(_num_training_iteration * self.data_parallel_size):
                 batch = encode_data(mb, self.next_batch())

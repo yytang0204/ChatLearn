@@ -283,6 +283,7 @@ class MegatronPolicyTrainer(MegatronModule):
             data (Dict[str, Any]): If this is the last rank of the replica, the output logprobs will be
              updated into the dict, otherwise do NOTHING.
         """
+        print(f"debugyy {data['all_tokens'].shape}")
         for model_module in self.model:
             model_module.eval()
         num_microbatches, data_iter = self._chunk_global_batch_into_micro_batch(data)

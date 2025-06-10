@@ -1,7 +1,6 @@
 #!/bin/bash
 set -x
 
-export PACKING=True
 # set path
 export CHATLEARN=$(pwd)
 export model_path="/mnt/workspace/chatlearn-exp/hub/hf/Qwen3_8B"
@@ -50,11 +49,11 @@ export num_inference_per_prompt=32
 export train_global_batch_size=2048 
 export sample_per_episode=2048
 export vllm_generation_batch_size=256
-export train_micro_batch_size=256
+export train_micro_batch_size=8
 export gpu_memory_utilization=0.80
 
-export ref_generation_batch_size=256
-export trainer_generation_batch_size=256
+export ref_generation_batch_size=8
+export trainer_generation_batch_size=8
 
 
 export enable_eval_before_training=False
@@ -63,5 +62,6 @@ export eval_episode_interval=10000
 export save_episode_interval=40000
 # for qwen3 where enable_thinking
 export enable_thinking=False
+export PACKING=False
 
 python entry/train_grpo.py -c configs/grpo/grpo.yaml 2>&1 | tee ${log_file}.log ; exit ${PIPESTATUS[0]}
