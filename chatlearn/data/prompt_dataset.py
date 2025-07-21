@@ -40,8 +40,10 @@ class VLLMPromptPipeline(Dataset):
         enable_thinking=False
     ):  # pylint: disable=super-init-not-called
         super().__init__()
-
-        self.tokenizer = tokenizer
+        if isinstance(tokenizer, str):
+            self.tokenizer = AutoTokenizer.from_pretrained(tokenizer)
+        else:
+            self.tokenizer = tokenizer
         self.data = []
 
         for data_item in data_list:
@@ -62,8 +64,8 @@ class VLLMPromptPipeline(Dataset):
                 "data_source": data_source,
                 "ground_truth": ground_truth,
             }
-            if seq_length > len(input_ids):
-                self.data.append(processed_data)
+            #if seq_length > len(input_ids):
+            self.data.append(processed_data)
 
     def __getitem__(self, ix: int):
         return self.data[ix]
@@ -73,7 +75,6 @@ class VLLMPromptPipeline(Dataset):
 
     def collate_fn(self, samples):
         collate_dict = defaultdict(list)
-
         # Loop over the samples and append each tensor value to the corresponding list
         for sample in samples:
             for key in sample.keys():

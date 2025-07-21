@@ -189,7 +189,7 @@ class PolicyTrainer(FSDPModule):
                 use_cache=False,
             )
             logprobs = logprobs_from_logits(output.logits, inputs["labels"])
-            entropy = entropy_from_logits_with_chunking(output.logits)
+            entropy = -logprobs#entropy_from_logits_with_chunking(output.logits)
 
             if sp_group is not None:
                 logprobs = gather(
@@ -274,6 +274,8 @@ class PolicyTrainer(FSDPModule):
         self._metric_list.append(train_stats)
 
     def forward_step(self, data):
+        if len(data) == 0:
+            return data
         total_size = data['all_tokens'].shape[0]
         ori_seq_len = data['all_tokens'].shape[1]
 

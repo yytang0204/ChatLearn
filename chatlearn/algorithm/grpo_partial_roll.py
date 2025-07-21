@@ -14,7 +14,6 @@
 # ==============================================================================
 """grpo algorithm"""
 
-from collections import defaultdict
 from dataclasses import dataclass, field, fields
 from typing import Any
 import traceback
@@ -29,11 +28,11 @@ import chatlearn
 from chatlearn import Engine
 from chatlearn.algorithm.grpo_utils.advantage_compute import compute_grpo_adv
 from chatlearn.algorithm.grpo_utils.policy_trainer import PolicyTrainer
-from chatlearn.models.rollout_manager import RolloutManager
-from chatlearn.algorithm.grpo_utils.vllm_policy_inference import \
+from chatlearn.algorithm.grpo_utils.vllm_policy_inference_partial_rollout import \
     VLLMPolicyInference
 from chatlearn.data.data import read_data_path_list
 from chatlearn.models.reward.rule_reward import RuleReward
+from chatlearn.models.rollout_manager import RolloutManager
 from chatlearn.runtime.environment import Environment
 from chatlearn.runtime.evaluator import Evaluator
 from chatlearn.runtime.trainer import Trainer
@@ -74,7 +73,6 @@ class GrpoModelConfig(BaseConfig):
     rollout_manager: RolloutManagerConfig = field(
         default_factory=RolloutManagerConfig, metadata={"help": "rollout manager config."}
     )
-
 
 
 @dataclass
@@ -135,11 +133,13 @@ class GRPOEvaluator(Evaluator):
         rule_rewards = results.get("rule_rewards", [])
         data_source = results.get("eval_source", [])
         rule_rewards_flatten = torch.cat(rule_rewards).squeeze().tolist()
-
-        data_source_to_id_map = defaultdict(list)
+        #eval_reward_stats = {"eval_reward_score": reward_score}
+        data_source_to_id_map = {}
         for i, source in enumerate(data_source):
-            data_source_to_id_map[source].append(i)
-
+            if source in data_source_to_id_map:
+                data_source_to_id_map[source].append(i)
+            else:
+                data_source_to_id_map[source] = [i]
         eval_reward_stats = {}
         for key, ids in data_source_to_id_map.items():
             selected = [rule_rewards_flatten[i] for i in ids]
@@ -158,13 +158,16 @@ class GRPOEngine(Engine):
         reward: RuleReward,
         ref_policy: PolicyTrainer,
         policy_trainer: PolicyTrainer,
+        rollout_manager: RolloutManager,
     ):
         def env_compute_flow(batch):
+            batch = rollout_manager.get_sample_for_rollout(batch)
             policy_out = policy.forward_step(batch)
+            policy_out = rollout_manager.post_process_rollout_results(policy_out)
             old_logprobs_out = policy_trainer.forward_step(policy_out)
             ref_logprobs_out = ref_policy.forward_step(old_logprobs_out)
             reward_out = reward.forward_step(ref_logprobs_out)
-            return reward_out
+            return ref_logprobs_out, reward_out
 
         def trainer_compute_flow(batch):
             policy_trainer.train_step(batch)
@@ -193,7 +196,6 @@ class GrpoAlgorithm(BaseAlgorithm):
         self.cfg = cfg
 
     def run(self) -> None:
-        print(self.cfg)
         chatlearn.init(self.cfg)
 
         if self.cfg.runtime_args.train_backend == "fsdp":
@@ -204,7 +206,8 @@ class GrpoAlgorithm(BaseAlgorithm):
             ref_policy = MegatronPolicyTrainer("ref_policy")
         policy = VLLMPolicyInference("policy")
         reward = RuleReward("reward")
-        engine = GRPOEngine(policy, reward, ref_policy, policy_trainer)
+        rollout_manager = RolloutManager("rollout_manager")
+        engine = GRPOEngine(policy, reward, ref_policy, policy_trainer, rollout_manager)
 
         # get train and evaluation data
         train_data_path_list = [

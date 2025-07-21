@@ -338,7 +338,7 @@ class Engine(BaseEngine):
             timer_names.append('evaluate')
         # timer_names in episode looping
         elif iteration >= 0:
-            timer_names.extend(['episode','train',])
+            timer_names.extend(['episode','train','make_experience'])
             if self.runtime_args.save_episode_interval and \
                     (iteration + 1) % self.runtime_args.save_episode_interval == 0:
                 timer_names.append('save_checkpoint')
@@ -423,6 +423,7 @@ class Engine(BaseEngine):
         data_loader: ActorHandle = StreamDataset.remote(
             self.runtime_args.stream_data_loader_type,
             self.runtime_args.train_micro_batch_size,
+            self.runtime_args.sample_per_episode,
             self.env._padding_config,
             self.runtime_args.max_replay_episode,
             self.runtime_args.replay_episode_offset)
@@ -454,52 +455,63 @@ class Engine(BaseEngine):
         self.logging_summary(-1)
 
         self._data_loader = data_loader
-        for episode_id in range(self._start_episode, self.runtime_args.num_episode):
+        episode_id = self._start_episode
+        episode_stop = False
+        experience_stop = False
+        while episode_id < self.runtime_args.num_episode:
             if self.runtime_args.nsys:
                 if episode_id == 4:
                     torch.cuda.cudart().cudaProfilerStart()
                 if episode_id == 5:
                     torch.cuda.cudart().cudaProfilerStop()
-            self.timers("episode").start()
+            if not self.timers("episode").is_started():
+                self.timers("episode").start()
             self.before_episode()
             logger.info(f"{LOG_START} start train episode_id: {episode_id + 1}/{self.runtime_args.num_episode}")
             if self.env.timers is None:
                 self.env.set_timers(self.timers)
             queue = []
+            if not self.timers("make_experience").is_started():
+                self.timers("make_experience").start()
             if os.getenv("SKIP_GENERATION", None) is None:
                 logger.info(f"{LOG_START} start to make experience: {episode_id + 1}/{self.runtime_args.num_episode}")
                 queue = self.env.make_experiences()
                 logger.info(f"{LOG_START} complete to make experience: {episode_id + 1}/{self.runtime_args.num_episode}")
-                self.timers("set_train_dataset").start()
             else:
                 logger.info(f"{LOG_START} Skip generation phase for episode_id: {episode_id + 1}/{self.runtime_args.num_episode}")
             refs = data_loader.set_dataset.remote(queue, episode_id, self._replay_sample_manager,
                                                   self.runtime_args.sample_per_episode)
             future.wait(refs, return_output=True)
-            if self.trainer is not None:
-                # validate parameter sync in the first two episodes
-                validate = self.runtime_args.validate_param_sync and episode_id < 2
-                self.timers("set_train_dataset").stop()
-                self.trainer.set_data_loader(data_loader)
-                logger.info(f"{LOG_START} set dataloader for trainer done")
-                logger.info(get_full_proc_memory_info(f"{LOG_START} Before train {episode_id}"))
-                if self.trainer.timers is None:
-                    self.trainer.set_timers(self.timers)
-                self.trainer.train(episode_id)
-                logger.info(get_full_proc_memory_info(f"{LOG_START} After train {episode_id}"))
-                self.timers("save ckpts").start()
-                self.save_checkpoint(episode_id)
-                self.timers("save ckpts").stop()
-                logger.info(f"{LOG_START} save episode_id: {episode_id + 1}/{self.runtime_args.num_episode} done")
-                self.timers("sync_parameters").start()
-                self.model_manager.sync_parameters(episode_id + 1, validate=validate)
-                self.timers("sync_parameters").stop()
-                logger.info(f"{LOG_START} train episode_id: {episode_id + 1}/{self.runtime_args.num_episode} parameter sync done")
-            logger.info(f"{LOG_START} train episode_id: {episode_id + 1}/{self.runtime_args.num_episode} done")
-            self.timers("episode").stop()
-            self.evaluate(episode_id)
-            self.after_episode()
-            self.logging_summary(episode_id)
+            buffer_len = future.get(data_loader.get_replay_buffer_len.remote())
+            self.timers("set_train_dataset").stop()
+            print(f"debugyy  buffer len: {buffer_len}")
+            if buffer_len >= self.runtime_args.sample_per_episode:
+                self.timers("make_experience").stop()
+                if self.trainer is not None:
+                    # validate parameter sync in the first two episodes
+                    validate = self.runtime_args.validate_param_sync and episode_id < 2
+                    self.trainer.set_data_loader(data_loader)
+                    logger.info(f"{LOG_START} set dataloader for trainer done")
+                    logger.info(get_full_proc_memory_info(f"{LOG_START} Before train {episode_id}"))
+                    if self.trainer.timers is None:
+                        self.trainer.set_timers(self.timers)
+                    self.trainer.train(episode_id)
+                    logger.info(get_full_proc_memory_info(f"{LOG_START} After train {episode_id}"))
+                    self.timers("save ckpts").start()
+                    self.save_checkpoint(episode_id)
+                    self.timers("save ckpts").stop()
+                    logger.info(f"{LOG_START} save episode_id: {episode_id + 1}/{self.runtime_args.num_episode} done")
+                    self.timers("sync_parameters").start()
+                    self.model_manager.sync_parameters(episode_id + 1, validate=validate)
+                    self.timers("sync_parameters").stop()
+                    logger.info(f"{LOG_START} train episode_id: {episode_id + 1}/{self.runtime_args.num_episode} parameter sync done")
+                logger.info(f"{LOG_START} train episode_id: {episode_id + 1}/{self.runtime_args.num_episode} done")
+                future.get(data_loader.cleanup_trained.remote(sample_size=self.runtime_args.sample_per_episode))
+                self.evaluate(episode_id)
+                self.after_episode()
+                self.logging_summary(episode_id)
+                episode_id += 1
+                self.timers("episode").stop()
 
         self.timers("chatlearn").stop()
         logger.info(f"{LOG_START} {self._name} overall summary {self.timers.log(names=['chatlearn'])}")

@@ -124,6 +124,7 @@ def preprocess_compute(func, trainable):
     """
 
     def inner(self, *args, **kwargs):
+        #print(f"debugyy kwargs: {kwargs}")
         args = future.get(args)
         assert isinstance(args, (list, tuple)), f"expect args is a list, while {type(args)}, args: {args}."
         batched_data_list = [None] * len(args)
@@ -194,6 +195,8 @@ def preprocess_compute(func, trainable):
             else:
                 if 'iteration' in inspect.signature(func).parameters:
                     kwargs["iteration"] = self._iteration
+                if hasattr(self, 'generate_vllm'):
+                    kwargs['is_eval'] = is_eval
                 ret = func(self, *args, **kwargs)
                 ret = utils.to_device('cpu', ret)
                 self._iteration += 1

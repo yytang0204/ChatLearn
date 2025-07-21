@@ -366,7 +366,7 @@ def slice_by_index_along_batch(batched_input, index):
     batched = {}
     for key in batched_input.keys():
         if isinstance(batched_input[key], torch.Tensor):
-            batched[key] = batched_input[key][start::offset,...]
+            batched[key] = batched_input[key][start::offset, ...]
         elif isinstance(batched_input[key], list):
             batched[key] = batched_input[key][start::offset]
     return batched

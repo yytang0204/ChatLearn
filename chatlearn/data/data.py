@@ -115,7 +115,7 @@ def split_batch(batch):
 class StreamDataset:
     """dataset built from queues"""
 
-    def __init__(self, data_loader_type, micro_batch_size, padding_config=None, max_replay_episode=0, replay_episode_offset=0):
+    def __init__(self, data_loader_type, micro_batch_size, sample_per_episode, padding_config=None, max_replay_episode=0, replay_episode_offset=0):
         """
         Args:
             data_loader_type: fixed or dynamic
@@ -136,6 +136,8 @@ class StreamDataset:
         self._replay_episode_offset = replay_episode_offset
         self._episode_replay_buffers = []
         self.replay_sample_manager = None
+        self._total_samples = sample_per_episode
+        self.reinit = True
 
     def shuffle(self):
         """
@@ -204,7 +206,9 @@ class StreamDataset:
         self._read_data_complete = True
         assert len(self.replay_buffer) == self._total_samples
         self._num_batches = batch_count
-
+    
+    def get_replay_buffer_len(self):
+        return len(self.replay_buffer.buffer)
     def next(self):
         """get next batch"""
         try:
@@ -223,6 +227,8 @@ class StreamDataset:
     def set_dataset(self, queue, episode_id, replay_sample_manager=None, sample_per_episode=-1):
         replay_buffer = EpisodeReplayBuffer(episode_id, queue=queue)
         if self._max_replay_episode > 0 and episode_id >= self._replay_episode_offset:
+            if os.getenv("SKIP_GENERATION", None) is None:
+                replay_buffer.sync()
             self._episode_replay_buffers.append(replay_buffer)
             if len(self._episode_replay_buffers) > self._max_replay_episode:
                 old_buffer = self._episode_replay_buffers.pop(0)
@@ -230,15 +236,18 @@ class StreamDataset:
 
             # this function will sync until all data computing finished,
             # which will block training until environment rollout finished.
-            if os.getenv("SKIP_GENERATION", None) is None:
-                replay_buffer.sync()
             if replay_sample_manager is None:
                 raise Exception("default replay sample function is not currently supported")
 
             self.replay_sample_manager = replay_sample_manager
             buffer = self.replay_sample_manager(self._episode_replay_buffers)
-            self.replay_buffer = EpisodeReplayBuffer(episode_id, buffer=buffer)
-            self._total_samples = len(self.replay_buffer)
+            #print(f"buffer now: {buffer}")
+            if self.reinit:
+                self.replay_buffer = EpisodeReplayBuffer(episode_id, buffer=buffer)
+                self.reinit = False
+            else:
+                self.replay_buffer.add_buffer(buffer)
+            #self._total_samples = len(self.replay_buffer)
             self._read_data_complete = True
         else:
             num_rollout_batches = queue.qsize()
@@ -249,6 +258,9 @@ class StreamDataset:
             self._read_data_complete = num_rollout_batches <= 1
         self.iter = iter(self)
         self._has_next = True
+
+    def cleanup_trained(self, sample_size):
+        self.replay_buffer.cleanup_trained(sample_size)
 
     def episode_replay_buffers(self):
         return self._episode_replay_buffers
@@ -281,6 +293,12 @@ class EpisodeReplayBuffer:
         self.queue = queue
         self._rollout_batch_size = -1
 
+    def add_buffer(self, new_buffer):
+        new_buffer.extend(self._buffer)
+        self._buffer = new_buffer
+    
+    def cleanup_trained(self, sample_size):
+        self._buffer = self._buffer[sample_size:]
     def add_raw_batch(self):
         if self.queue.qsize() == 0:
             raise ValueError("WARN: data queue is empty")
@@ -292,6 +310,9 @@ class EpisodeReplayBuffer:
             if CHATLEARN_REGROUP_TAG in local_data:
                 local_data = regroup_by_concat_along_batch(local_data[CHATLEARN_REGROUP_TAG])
             merged_data.update(local_data)
+        #print(f'debugyy merge data in add_raw_batch: {merged_data}')
+        if len(merged_data) == 0:
+            return []
         samples = split_batch(merged_data)
         if self._rollout_batch_size < 0:
             self._rollout_batch_size = len(samples)

@@ -195,6 +195,28 @@ class BaseModelConfig(BaseConfig):
 
 
 @dataclass
+class RolloutManagerConfig(BaseModelConfig):
+    seq_length: int = field(
+        default=2048, metadata={"help": "length of prompt + response"}
+    )
+    enable_thinking: bool = field(
+        default=False, metadata={"help": "whether enable think or not"}
+    )
+    load: str = field(
+        default=MISSING, metadata={"help": "model weights and tokenizer config path"}
+    )
+    max_rollout_round: int = field(
+        default=1, metadata={"help": "max rollout round"}
+    )
+    max_gen_len: int = field(
+        default=1000, metadata={"help": "max generation length"}
+    )
+    num_inference_per_prompt: int = field(
+        default=32, metadata={"help": "number of response for per prompt"}
+    )
+
+
+@dataclass
 class PolicyConfig(BaseModelConfig):
     """PolicyConfig"""
 
@@ -254,6 +276,9 @@ class PolicyConfig(BaseModelConfig):
     )
     gpu_memory_utilization: float = field(
         default=0.8, metadata={"help": "gpu_memory_utilization"}
+    )
+    max_rollout_round: int = field(
+        default=1, metadata={"help": "max rollout round"}
     )
     enforce_eager: bool = field(default=False, metadata={"help": "enforce_eager"})
     load: str = field(default=MISSING, metadata={"help": "model weights and tokenizer config path"})

@@ -33,6 +33,7 @@ from chatlearn.algorithm.base_algo import BaseAlgorithm
 #  "engine_name": ("module_path", "algo_class_name", "config_class")
 ALGO_REGISTRY: Dict[str, Tuple[str, str, str]] = {
     "grpo": ("algorithm.grpo", "GrpoAlgorithm", "GrpoConfig"),
+    "grpo_partial_roll": ("algorithm.grpo_partial_roll", "GrpoAlgorithm", "GrpoConfig"),
 }
 
 
@@ -95,7 +96,7 @@ class ChatlearnLauncher:
         GlobalHydra.instance().clear()
         with hydra.initialize(config_path=None, version_base=None):
             cfg = hydra.compose(config_name=algo_args.algorithm)
-
+            print(cfg)
             if algo_args.config_file is not None:
                 external_cfg = OmegaConf.load(algo_args.config_file)
                 for arg in algo_args.hydra_args:

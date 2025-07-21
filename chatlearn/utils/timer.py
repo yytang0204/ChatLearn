@@ -42,6 +42,9 @@ class _Timer:
         self.start_time = time.time()
         self.started_ = True
         self._num += 1
+    
+    def is_started(self):
+        return self.started_
 
     def stop(self):
         """Stop the timer."""

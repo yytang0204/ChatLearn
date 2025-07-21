@@ -92,9 +92,20 @@ models:
     vllm_prompt_key: prompt
     vllm_input_ids_key: input_ids
     enable_thinking: False
+    max_rollout_round: 2
     enable_stage_resume: False
     gpu_memory_utilization: 0.8
   reward:
     num_cpu: 2
     cpu_per_process: 1
     generation_batch_size: 256
+  rollout_manager:
+    num_cpu: 64
+    cpu_per_process: 64
+    generation_batch_size: ${runtime_args.sample_per_episode}
+    num_inference_per_prompt: ${models.policy.num_inference_per_prompt}
+    seq_length: ${models.policy.seq_length}
+    enable_thinking: ${models.policy.enable_thinking}
+    load: ${models.policy_trainer.load}
+    max_rollout_round: ${models.policy.max_rollout_round}
+    max_gen_len: ${models.policy.seq_length}

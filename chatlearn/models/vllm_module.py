@@ -324,8 +324,9 @@ class VLLMModule(TorchModule, RayWorkerWrapper):
     def update_weights_from_ipc_handles(self, reduce_data):
         self.param_update_fn(reduce_data)
 
-    def generate_vllm(self, query, is_eval, iteration=0, is_first_run=True):
+    def generate_vllm(self, query, is_eval, partial_rollout=False, iteration=0, is_first_run=True):
         # resume from stage checkpoint.
+        print(f"debugyy generate vllm with is_eval: {is_eval}")
         outputs = self.load_stage_outputs(is_eval, iteration)
         if outputs is not None:
             return outputs
@@ -336,14 +337,18 @@ class VLLMModule(TorchModule, RayWorkerWrapper):
         # preprocess query
         prompt_key = self.module_args.get("vllm_prompt_key", "prompt")
         input_ids_key = self.module_args.get("vllm_input_ids_key", "input_ids")
-        seq_len = self.module_args.get("seq_length")
+        max_rollround = self.module_args.get("max_rollout_round", 1)
+        if is_eval and partial_rollout:
+            seq_len = self.module_args.get("seq_length") * max_rollround
+        else:
+            seq_len = self.module_args.get("seq_length")
 
         prompts = query[prompt_key]
         prompts_token_ids = query[input_ids_key]
         sampling_param = self._get_sampling_params(is_eval)
         sampling_params = []
         for prompt, prompt_token_ids_item in zip(prompts, prompts_token_ids):
-            max_tokens = seq_len - len(prompt_token_ids_item)
+            max_tokens = seq_len# - len(prompt_token_ids_item)
             assert max_tokens > 0, f"{prompt} is larger than {seq_len}"
             sampling_param_item = copy.deepcopy(sampling_param)
             sampling_param_item.max_tokens = max_tokens

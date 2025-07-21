@@ -1,4 +1,18 @@
 """used for compute math rule score"""
+from chatlearn.utils.rule_reward_score.grader import math_equal
+def compute_score_areal(solution_str, ground_truth) -> float:
+    retval = 0.0
+    try:
+        string_in_last_boxed = last_boxed_only_string(solution_str)
+        if string_in_last_boxed is not None:
+            answer = remove_boxed(string_in_last_boxed)
+            if math_equal(answer, ground_truth):
+                retval = 1.0
+    except Exception as e:
+        print(e)
+
+    return retval
+
 def compute_score(solution_str, ground_truth) -> float:
     retval = 0.0
     try:
@@ -215,6 +229,6 @@ def strip_string(string):
 
 if __name__ == "__main__":
 
-    pred = "step by step and output the final answer within \\boxed{18}"
-    gt = "18"
+    pred = "step by step and output the final answer within \\boxed{122 - 8 \\sqrt{7}}"
+    gt = "22 - 8 \\sqrt{7}"
     print(compute_score(pred, gt))

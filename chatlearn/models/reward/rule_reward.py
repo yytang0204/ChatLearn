@@ -49,7 +49,8 @@ class RuleReward(BaseModule):
         return data
 
     def forward_step(self, data: Dict, iteration=0) -> Dict:
-
+        if len(data) == 0:
+            return {}
         res_dict = self._forward_step(data)
 
         # collect stats
@@ -68,5 +69,6 @@ class RuleReward(BaseModule):
     def select_rule_reward_score_fn(self, data_source: str):
         if data_source in ['openai/gsm8k', 'DigitalLearningGmbH/MATH-lighteval', 'aime24', 'aime25']:
             return math.compute_score
-        else:
+        elif data_source in ['areal']:
+            return math.compute_score_areal
             raise NotImplementedError
