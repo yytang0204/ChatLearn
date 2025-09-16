@@ -15,8 +15,10 @@
 """FSDP Trainer"""
 
 import math
+import os
 from contextlib import nullcontext
 from typing import List, Dict, Any
+from collections import defaultdict
 
 import torch
 import torch.distributed as dist
@@ -138,6 +140,7 @@ class PolicyTrainer(FSDPModule):
                     "indices": indices,
                     "ori_batch_size": ori_batch_size,
                     "sample_ids": data_b["id_in_list"],
+                    "rollout_logprobs": data_b["rollout_logprobs"],
                     "attention_mask": attn_mask,
                     "pad_size": pad_size,
                 }
@@ -179,10 +182,11 @@ class PolicyTrainer(FSDPModule):
         pg_loss_list = []
         entropy_loss_list = []
         kl_loss_list = []
+        kl_loss_rollout_list = []
         sp_group = get_sp_parallel_group()
-
+        original_data_size = len(data_list)
         response_token_length_total, data_list = self.preprocess_data_list(data_list=data_list, training=True)
-
+        logging_metric = defaultdict(list)
         for inputs in data_list:
             for k, v in inputs.items():
                 inputs[k] = to_device(torch.cuda.current_device(), v)
@@ -234,24 +238,37 @@ class PolicyTrainer(FSDPModule):
                 logprobs_len = logprobs.shape[1]
                 logprobs = F.pad(logprobs, (0, inputs['ori_seq_len'] - logprobs_len), mode='constant', value=0)
                 entropy = F.pad(entropy, (0, inputs['ori_seq_len'] - logprobs_len), mode='constant', value=0)
-            loss = calculate_grpo_loss(
+            tis_ratio = float(os.environ.get('TIS_RATIO', -1))
+            loss, loss_metric = calculate_grpo_loss(
                 log_probs=logprobs,
                 old_log_probs=inputs["old_logprobs"],
+                rollout_logprobs=inputs["rollout_logprobs"],
                 advantages=inputs["advantages"],
                 diff_clip_ratio=self.module_args.get("diff_clip_ratio", 10),
                 pos_clip_ratio=self.module_args.get("pos_clip_ratio", 0.2),
                 neg_clip_ratio=self.module_args.get("neg_clip_ratio", 0.2),
                 final_clip_ratio=self.module_args.get("final_clip_ratio", 3),
+                tis_ratio=tis_ratio
             )
+            # per sample loss
+            per_sample = int(os.environ.get("PER_SAMPLE_LOSS", 1)) == 1
+            if per_sample:
+                pg_loss = torch.sum(loss * inputs["loss_mask"], dim=-1) / torch.sum(inputs["loss_mask"], dim=-1)
+                #print(f"debugyy: {pg_loss.shape}")
+                pg_loss_mean = torch.sum(pg_loss) / original_data_size
+            else:
+                pg_loss = torch.masked_select(loss, inputs["loss_mask"].bool())
+                # compute backward loss
+                pg_loss_mean = torch.sum(pg_loss) / response_token_length_total * self.fsdp_size
 
-            pg_loss = torch.masked_select(loss, inputs["loss_mask"].bool())
-
+            for k, v in loss_metric.items():
+                logging_metric[k].append(torch.masked_select(v, inputs["loss_mask"].bool()))
             # entropy loss
             entropy_loss = torch.masked_select(entropy, inputs["loss_mask"].bool())
             entropy_loss_mean = torch.sum(entropy_loss) / response_token_length_total * self.fsdp_size
 
             # kl loss
-            kl = inputs["ref_logprobs"] - logprobs
+            kl = inputs["ref_logprobs"] - logprobs.detach()
             kl = torch.masked_select(kl, inputs["loss_mask"].bool())
             ratio = torch.exp(kl)
             assert not torch.isinf(ratio).any(), "kl loss ratio has inf values"
@@ -260,8 +277,14 @@ class PolicyTrainer(FSDPModule):
             kl_loss = torch.clamp(kld, min=-10, max=10)
             kl_loss_mean = torch.sum(kl_loss) / response_token_length_total * self.fsdp_size
 
-            # compute backward loss
-            pg_loss_mean = torch.sum(pg_loss) / response_token_length_total * self.fsdp_size
+            # kl generate
+            kl_rollout = logprobs.detach() - inputs["rollout_logprobs"]
+            kl_rollout = torch.masked_select(kl_rollout, inputs["loss_mask"].bool())
+            ratio = torch.exp(kl_rollout)
+            assert not torch.isinf(ratio).any(), "kl loss ratio has inf values"
+            assert not torch.isnan(ratio).any(), "kl loss ratio has nan values"
+            kld_rollout = torch.abs(kl_rollout - 1).contiguous()
+
             total_loss = pg_loss_mean
             if self.module_args.entropy_coef > 0:
                 total_loss = total_loss - self.module_args.entropy_coef * entropy_loss_mean
@@ -271,7 +294,8 @@ class PolicyTrainer(FSDPModule):
 
             pg_loss_list.append(pg_loss.detach())
             entropy_loss_list.append(entropy_loss.detach())
-            kl_loss_list.append(kl_loss.detach())
+            kl_loss_list.append(kld.detach())
+            kl_loss_rollout_list.append(kld_rollout.detach())
 
         # refs to https://docs.pytorch.org/tutorials/intermediate/FSDP_tutorial.html#gradient-clipping-and-optimizer-with-dtensor
         # but results seems not right in torch 2.6.0+cu124
@@ -285,13 +309,17 @@ class PolicyTrainer(FSDPModule):
         pg_loss = (torch.sum(torch.cat(pg_loss_list)) / response_token_length_total * self.fsdp_size).item()
         kl_loss = torch.mean(torch.cat(kl_loss_list)).item()
         entropy_loss = torch.mean(torch.cat(entropy_loss_list)).item()
+        kl_rollout_loss = torch.mean(torch.cat(kl_loss_rollout_list)).item()
 
         train_stats = {
             "pg_loss": pg_loss,
             "kl_loss": kl_loss,
             "entropy_loss": entropy_loss,
             "grad_norm": grad_norm,
+            "kl_rollout_loss": kl_rollout_loss
         }
+        for k,v in logging_metric.items():
+            train_stats[k] = (torch.sum(torch.cat(v)) / response_token_length_total * self.fsdp_size).item()
         self._metric_list.append(train_stats)
 
     @monitor_error()

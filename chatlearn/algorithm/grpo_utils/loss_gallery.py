@@ -7,11 +7,14 @@ def calculate_grpo_loss(
     log_probs: torch.Tensor,
     old_log_probs: torch.Tensor,
     advantages: List[float],
+    rollout_logprobs: torch.Tensor=None,
     diff_clip_ratio: float = 10,
     pos_clip_ratio: float = 0.2,
     neg_clip_ratio: float = 0.2,
     final_clip_ratio: float = 3.0,
+    tis_ratio: float = 5.0
 ):
+    loss_metric = {}
     logprobs_diff = log_probs - old_log_probs
     # clip logprobs_diff before exp to avoid overflow
     logprobs_diff = torch.clamp(logprobs_diff, max=diff_clip_ratio)
@@ -25,12 +28,19 @@ def calculate_grpo_loss(
     pg_loss_clip = torch.max(pg_loss, pg_loss_2)
     pg_loss_upperbound = torch.ones_like(pg_loss) * final_clip_ratio
     # final clip on loss
-    loss = torch.min(pg_loss_clip, pg_loss_upperbound)
+    pg_loss = torch.min(pg_loss_clip, pg_loss_upperbound)
+    if rollout_logprobs is not None and tis_ratio > 0:
+        negative_approx_kl2 = old_log_probs - rollout_logprobs.to(old_log_probs.dtype)
+        ratio_behav = torch.exp(negative_approx_kl2)
+        ratio_behav = torch.clamp(ratio_behav, max=tis_ratio)
+        valid_ratio_behave = ratio_behav < tis_ratio
+        loss_metric["ratio_behav"] = valid_ratio_behave
+        pg_loss = pg_loss * ratio_behav
 
     # check pg_loss nan
-    assert not torch.isnan(loss).any(), "pg loss is nan"
+    assert not torch.isnan(pg_loss).any(), "pg loss is nan"
 
-    return loss.contiguous()
+    return pg_loss.contiguous(), loss_metric
 
 def calculate_gspo_loss(
     log_probs: torch.Tensor,

@@ -251,10 +251,13 @@ class SGLangModule(TorchModule):
         if first_rank_in_node:
             os.environ["SGLANG_BLOCK_NONZERO_RANK_CHILDREN"] = "0"
             # avoid ray actor become an async actor in sync mode
+            enable_quant = int(os.environ.get("ENABLE_QUANT")) == 1
+            quantization_type = "block_fp8" if enable_quant else None
             llm_cls = sglang.Engine if self.module_args.is_sync_mode else AsyncEngine
             self.llm = llm_cls(
                 model_path=self.module_args["load"],
                 dtype=dtype,
+                quantization=quantization_type,
                 mem_fraction_static=self.module_args.get(
                     "gpu_memory_utilization", 0.85
                 ),
@@ -278,6 +281,8 @@ class SGLangModule(TorchModule):
         # this two flag used for avoid onload,offload twice
         self.kv_cache_onloaded = True
         self.weight_onloaded = True
+        if first_rank_in_node:
+           self.offload(tags=["kv_cache"])
 
         self.need_offload = True
         dist.barrier()
@@ -368,7 +373,7 @@ class SGLangModule(TorchModule):
         if self.is_engine:
             prompts_token_ids, sampling_params = self.preprocess_data(query, is_eval)
             outputs = self.llm.generate(
-                input_ids=prompts_token_ids, sampling_params=sampling_params
+                input_ids=prompts_token_ids, sampling_params=sampling_params, return_logprob=not is_eval
             )
         self.flush_cache()
         return outputs
@@ -629,7 +634,7 @@ class AsyncSGLangModule(SGLangModule):
             outputs = await self.llm.async_generate(
                 prompt=None,  # because we have already convert it to prompt token id
                 sampling_params=sampling_params,
-                return_logprob=True,
+                return_logprob=not is_eval,
                 input_ids=prompts_token_ids,
             )
         await self.flush_cache()

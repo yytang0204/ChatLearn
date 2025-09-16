@@ -59,6 +59,16 @@ def sglang_postprocess_func(
                 "str_outputs": str_outputs,
             }
         )
+        output_rollout_logprobs = output["meta_info"].get("output_token_logprobs", None)
+        if output_rollout_logprobs is not None:
+            total_logprobs = [0.0] * len(prompt_token_ids)
+            output_rollout_logprobs = [d[0] for d in output_rollout_logprobs]
+            total_logprobs.extend(output_rollout_logprobs)
+            total_logprobs = torch.tensor(total_logprobs, dtype=torch.float32)
+            torch.roll(total_logprobs, shifts=-1, dims=0)
+            input_data.update({
+                "rollout_logprobs": total_logprobs,
+            })
         if "rollout_round" in input_data:
             input_data["rollout_round"] += 1
         data_output.append(input_data)

@@ -35,6 +35,7 @@ from chatlearn.utils.logger import debug_rank_0
 from chatlearn.utils.utils import dict_to_simplenamespace
 from chatlearn.utils.communication_op import set_sp_parallel_group
 from chatlearn.models.patches.monkey_patch import apply_sp_monkey_patch, apply_group_gemm
+from chatlearn.models.quantization_kernel.blockwise_fp8 import fp8_blockwise_weight_quant
 from chatlearn.runtime.decorator import timeit, monitor_error
 from .torch_module import TorchModule
 
@@ -267,13 +268,26 @@ class FSDPModule(TorchModule):
         if isinstance(fsdp_transformer_layer_cls_to_wrap, str):
             fsdp_transformer_layer_cls_to_wrap = [fsdp_transformer_layer_cls_to_wrap]
         modules = []
+        lm_head = []
         for name, module in model.named_modules():
             if module.__class__.__name__ in fsdp_transformer_layer_cls_to_wrap or \
                 (isinstance(module, nn.Embedding) and not model.config.tie_word_embeddings):
                 modules.append(module)
+            elif "lm_head" in name:
+                #print("debugyy get lm_head")
+                lm_head.append(module)
+
+        mix_precision_config_lmhead = MixedPrecisionPolicy(param_dtype=torch.float32, reduce_dtype=torch.float32, output_dtype=torch.float32, cast_forward_inputs=True)
+        fsdp_kwargs_lmhead = {
+            "mesh": self.device_mesh,
+            "mp_policy": mix_precision_config_lmhead,
+            "reshard_after_forward": True,
+        }
 
         for module in modules:
             fully_shard(module, **fsdp_kwargs)
+        # for module in lm_head:
+        #     fully_shard(module, **fsdp_kwargs_lmhead)
         fully_shard(model, **fsdp_kwargs)
         if self.module_args.meta_init:
             # save buffer data
@@ -354,9 +368,22 @@ class FSDPModule(TorchModule):
             torch.cuda.memory._set_allocator_settings("expandable_segments:False")
         reduce_tensor_dict = {}
         serialize_func = reduce_tensor if rollout_engine=='vllm' else MultiprocessingSerializer.serialize
+        enable_quant = int(os.environ.get("ENABLE_QUANT")) == 1
         for name, param in self.model.named_parameters():
             if name in block_name:
-                reduce_tensor_dict[name] = serialize_func(param.full_tensor().detach() \
+                if "lm_head" in name:
+                    print(param.dtype)
+                if enable_quant:
+                    if '_proj.weight' in name:
+                        tensor_ = param.full_tensor().detach() if isinstance(param, DTensor) else param.detach()
+                        weight, scale = fp8_blockwise_weight_quant(tensor_, block_size=128, dtype=torch.float8_e4m3fn)
+                        reduce_tensor_dict[name] = serialize_func(weight)
+                        reduce_tensor_dict[name.replace('weight', 'weight_scale_inv')] = serialize_func(scale)
+                    else:
+                        reduce_tensor_dict[name] = serialize_func(param.full_tensor().detach() \
+                                        if isinstance(param, DTensor) else param.detach())
+                else:
+                    reduce_tensor_dict[name] = serialize_func(param.full_tensor().detach() \
                                         if isinstance(param, DTensor) else param.detach())
         if self.module_args.use_expandable_segments:
             torch.cuda.memory._set_allocator_settings("expandable_segments:True")
